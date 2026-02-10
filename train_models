@@ -1,0 +1,193 @@
+import numpy as np
+import tensorflow as tf
+import yfinance as yf
+import matplotlib.pyplot as plt
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import MinMaxScaler
+
+import numpy as np
+import tensorflow as tf
+import yfinance as yf
+import matplotlib.pyplot as plt
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.preprocessing import MinMaxScaler
+
+
+# Define input tickers
+# Define input tickers
+# Define input tickers
+input_tickers = [
+    'FCX', 'RIO', 'TECK', 'IAG', 'DRD', 'NEM', 'GLD', 'AEM', 'PAAS', 'AU', 'KGC', 'WPM', 'AG', 'NG', 'HMY', 'VGZ', 'GMAB', 'NMM', 'CSIQ', 'CSCO', 'FSM', 'OR', 'PYPL', 'HGBL', 'EW', 'BVN', 'RGLD',
+    'SEDG', 'FSLR', 'ENPH', 'JKS', 'RUN', 'NEE', 'CWEN', 'LNTH', 'CHKP', 'PANW', 'AZN', 'ELTK',
+    'MSFT', 'NVDA', 'AMD', 'INTC', 'GOOG', 'META', 'TSM', 'INTU', 'UMC', 'MU', 'ORCL', 'ASML', 'DELL', 'TXN', 'QRVO', 'BIDU', 'SMCI',
+    'TSLA', 'ALB', 'LTBR', 'CAT', 'BWXT', 'BA', 'SIEGY', 'SQM', 'MA', 'MCD', 'AVXL', 'SRTS',
+    'HDSN', 'CCJ', 'AMZN', 'WELL', 'MPLX', 'TSE', 'ELD', 'UTHR', 'ABT', 'JNJ', 'BABA', 'JPM', 'SB', 'TER', 'ARKQ', 'BLX', 'NRG', 'LIT', 'FLXS', 'BAESY', 'STE', 'IBM', 'KO', 'PEP', 'GS', 'V'
+]
+
+exx = ['SSB', 'RYAAY', 'GFI', 'MOH', 'CNC', 'EGO', 'NVS', 'PODD', 'EL', 'WSM', 'WMT', 'BLK', 'XOM', 'LLY', 'AAPL', 'UNH', 'PG', 'WLKP', 'IBRX', 'AVGO', 'NFLX', 'GILD']
+
+input_tickers.extend(exx)
+
+
+
+data_scaled = np.load("data_scaled.npy")
+data_scaled_vol = np.load("data_scaled_vol.npy")
+data_scaled_high = np.load("data_scaled_high.npy")
+data_scaled_low = np.load("data_scaled_low.npy")
+
+#data_scaled = data_scaled[0:-128]
+#data_scaled_vol = data_scaled_vol[0:-128]
+#data_scaled_high = data_scaled_high[0:-128]
+#data_scaled_low = data_scaled_low[0:-128]
+
+# Helper function for normalization
+def normalize_min_max(data):
+    return (data - np.min(data, axis=0)) / (np.max(data, axis=0) - np.min(data, axis=0))
+
+
+
+
+DAYS = 142
+HISTORY = 172
+
+
+# Function to create supervised learning dataset
+
+def create_input(data, vol, high, low, time_steps=0):
+    X=[]
+    data_to_insert_a = normalize_min_max(data[-time_steps:])
+    data_to_insert_b = normalize_min_max(vol[-time_steps:])
+    data_to_insert_c = normalize_min_max(high[-time_steps:])
+    data_to_insert_d = normalize_min_max(low[-time_steps:])
+    data_to_insert = np.concatenate([data_to_insert_a, data_to_insert_b,data_to_insert_c,data_to_insert_d], axis=1)
+    X.append(data_to_insert)
+
+
+    # Convert to a numpy array and return
+    return np.array(X)
+
+
+
+def create_dataset(data, vol, high, low, time_steps=0, future_steps=0, threshold=0.1, inverted=False):
+    if inverted:
+      data = 1-data
+      high = 1-high
+      low = 1-low
+
+    X, y = [], []
+    for i in range(len(data) - time_steps - future_steps):
+        # Normalize and prepare input data
+        data_to_insert_a = normalize_min_max(data[i:i + time_steps])
+        data_to_insert_b = normalize_min_max(vol[i:i + time_steps])
+        data_to_insert_c = normalize_min_max(high[-time_steps:])
+        data_to_insert_d = normalize_min_max(low[-time_steps:])
+        data_to_insert = np.concatenate([data_to_insert_a, data_to_insert_b,data_to_insert_c,data_to_insert_d], axis=1)
+        X.append(data_to_insert)
+
+        future_prices = data[i + time_steps:i + time_steps + future_steps]
+        current_price = data[i + time_steps - 1]
+
+        future_average_price = np.mean(future_prices, axis=0)
+        target = future_average_price - current_price
+
+
+        y.append(target)
+
+    return np.array(X), np.array(y)
+
+
+# Prepare dataset (200-day version)
+X_s, y_s = create_dataset(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, time_steps=HISTORY, future_steps=DAYS)
+X_inv_s, y_inv_s = create_dataset(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, time_steps=HISTORY, future_steps=DAYS, inverted=True)
+X_combined_s = np.concatenate((X_s, X_inv_s), axis=0)
+y_combined_s = np.concatenate((y_s, y_inv_s), axis=0)
+input_data = create_input(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, time_steps=HISTORY)
+
+
+def build_model(shape1, shape2):
+    inp = tf.keras.layers.Input(shape=(shape1, shape2))
+
+    x = tf.keras.layers.SpatialDropout1D(random.uniform(0.4, 0.85))(inp)
+    x = tf.keras.layers.Dropout(random.uniform(0.1,0.7))(x)
+
+    for _ in range(random.randint(2, 4)):
+        x = tf.keras.layers.SeparableConv1D(
+            filters=shape2,        # keeps channel count
+            kernel_size=3,
+            strides=2,
+            padding="same",
+            depth_multiplier=1     # ensures per channel filters
+        )(x)
+        x = tf.keras.layers.LayerNormalization()(x)
+        x = tf.keras.layers.Activation("gelu")(x)
+
+    # Now combine channels at the end
+    x = tf.keras.layers.Flatten()(x)
+
+    x = tf.keras.layers.Dropout(random.uniform(0.2,0.85))(x)
+    x = tf.keras.layers.Dense(random.randint(16, 64), activation="gelu")(x)
+    x = tf.keras.layers.LayerNormalization()(x)
+    x = tf.keras.layers.Dropout(random.uniform(0.2,0.7))(x)
+    x = tf.keras.layers.Dense(random.randint(8, 64), activation="gelu")(x)
+
+    if random.randint(0,1 ) == 1:
+      if random.randint(0, 1) == 1:
+        x = tf.keras.layers.LayerNormalization()(x)
+      x = tf.keras.layers.Dense(random.randint(8, 64), activation="gelu")(x)
+
+    out = tf.keras.layers.Dense(len(input_tickers))(x)
+
+    model = tf.keras.Model(inp, out)
+    print(model.summary())
+    return model
+
+
+# Training setup
+num_models = 12
+early_stopping = EarlyStopping(monitor='val_loss', patience=32, min_delta=1e-4, restore_best_weights=True, mode='min', verbose=1)
+lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, verbose=1)
+
+import random
+# Train the ensemble (200-day version)
+ensemble = []
+for i in range(1, num_models):
+    print(f"Training model {i}/{num_models} for {DAYS}-day prediction...")
+    model = build_model(X_combined_s.shape[1], X_combined_s.shape[2])
+    optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001)
+    model.compile(optimizer=optimizer, loss='mse')
+    model.fit(X_combined_s, y_combined_s, epochs=4, batch_size=6, validation_split=0.35, verbose=1, callbacks=[early_stopping, lr_scheduler])
+    ensemble.append(model)
+
+# Predictions (200-day version)
+predictions = {ticker: [] for ticker in input_tickers}
+for idx, ticker in enumerate(input_tickers):
+    predictions[ticker] = np.mean([m(input_data).numpy()[:, idx] for m in ensemble], axis=0)
+
+# Plot predictions
+fig, ax = plt.subplots(figsize=(18, 10))
+tickers_range = np.arange(len(input_tickers))
+pred_days = np.array([predictions[ticker] for ticker in input_tickers]).flatten()
+ax.bar(tickers_range, pred_days, color='blue', width=0.6, label='200-Day Prediction')
+
+ax.set_title("200-Day Predictions for All Tickers", fontsize=16)
+ax.set_xlabel("Tickers", fontsize=14)
+ax.set_ylabel("Predicted Change", fontsize=14)
+ax.set_xticks(tickers_range)
+ax.set_xticklabels(input_tickers, rotation=45, fontsize=10)
+ax.legend(title="Prediction Length", fontsize=10)
+ax.grid(alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+import pandas as pd
+
+# Convert predictions dictionary to DataFrame
+predictions_df = pd.DataFrame.from_dict(predictions, orient='index', columns=['{DAYS}-Day Prediction'])
+
+# Save as CSV
+predictions_df.to_csv(f"predictions_{DAYS}.csv")
+
+# Download in Colab
+from google.colab import files
+files.download(f"predictions_{DAYS}.csv")
