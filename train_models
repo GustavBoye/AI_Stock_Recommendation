@@ -2,192 +2,337 @@ import numpy as np
 import tensorflow as tf
 import yfinance as yf
 import matplotlib.pyplot as plt
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
+from matplotlib.gridspec import GridSpec
 from tensorflow.keras.callbacks import EarlyStopping
 from sklearn.preprocessing import MinMaxScaler
+import random
+import pandas as pd
+import time
+from datetime import date
 
-import numpy as np
-import tensorflow as tf
-import yfinance as yf
-import matplotlib.pyplot as plt
-from tensorflow.keras.callbacks import EarlyStopping
-from sklearn.preprocessing import MinMaxScaler
-
-
-# Define input tickers
-# Define input tickers
-# Define input tickers
+# ─────────────────────────────────────────────
+# TICKERS
+# ─────────────────────────────────────────────
 input_tickers = [
-    'FCX', 'RIO', 'TECK', 'IAG', 'DRD', 'NEM', 'GLD', 'AEM', 'PAAS', 'AU', 'KGC', 'WPM', 'AG', 'NG', 'HMY', 'VGZ', 'GMAB', 'NMM', 'CSIQ', 'CSCO', 'FSM', 'OR', 'PYPL', 'HGBL', 'EW', 'BVN', 'RGLD',
+    'FCX', 'RIO', 'TECK', 'IAG', 'DRD', 'NEM', 'GLD', 'AEM', 'PAAS', 'AU', 'KGC', 'WPM', 'AG', 'NG', 'HMY', 'VGZ',
+    'GMAB', 'NMM', 'CSIQ', 'CSCO', 'FSM', 'OR', 'PYPL', 'HGBL', 'EW', 'BVN', 'RGLD',
     'SEDG', 'FSLR', 'ENPH', 'JKS', 'RUN', 'NEE', 'CWEN', 'LNTH', 'CHKP', 'PANW', 'AZN', 'ELTK',
     'MSFT', 'NVDA', 'AMD', 'INTC', 'GOOG', 'META', 'TSM', 'INTU', 'UMC', 'MU', 'ORCL', 'ASML', 'DELL', 'TXN', 'QRVO', 'BIDU', 'SMCI',
     'TSLA', 'ALB', 'LTBR', 'CAT', 'BWXT', 'BA', 'SIEGY', 'SQM', 'MA', 'MCD', 'AVXL', 'SRTS',
-    'HDSN', 'CCJ', 'AMZN', 'WELL', 'MPLX', 'TSE', 'ELD', 'UTHR', 'ABT', 'JNJ', 'BABA', 'JPM', 'SB', 'TER', 'ARKQ', 'BLX', 'NRG', 'LIT', 'FLXS', 'BAESY', 'STE', 'IBM', 'KO', 'PEP', 'GS', 'V'
+    'HDSN', 'CCJ', 'AMZN', 'WELL', 'MPLX', 'TSE', 'ELD', 'UTHR', 'ABT', 'JNJ', 'BABA', 'JPM', 'SB', 'TER', 'ARKQ', 'BLX', 'NRG', 'LIT', 'FLXS', 'BAESY', 'STE', 'IBM', 'KO', 'PEP', 'GS', 'V', "LC"
 ]
-
-exx = ['SSB', 'RYAAY', 'GFI', 'MOH', 'CNC', 'EGO', 'NVS', 'PODD', 'EL', 'WSM', 'WMT', 'BLK', 'XOM', 'LLY', 'AAPL', 'UNH', 'PG', 'WLKP', 'IBRX', 'AVGO', 'NFLX', 'GILD']
-
+exx = ['SSB', 'RYAAY', 'GFI', 'MOH', 'CNC', 'EGO', 'NVS', 'PODD', 'EL', 'WSM', 'WMT', 'BLK', 'XOM', 'LLY', 'AAPL', 'UNH', 'PG', 'WLKP', 'IBRX', 'AVGO', 'NFLX', 'GILD', 'CGAU', 'SSRM', 'GNTX', 'CVX']
 input_tickers.extend(exx)
 
+# ─────────────────────────────────────────────
+# DATA DOWNLOAD
+# ─────────────────────────────────────────────
+def batch_download(tickers, start, end, batch_size=5, datatype='Close'):
+    all_data = {}
+    for i in range(0, len(tickers), batch_size):
+        batch = tickers[i:i + batch_size]
+        print(f"Downloading {datatype} for: {batch}")
+        try:
+            df = yf.download(batch, start=start, end=end, interval="1d")[datatype]
+            all_data.update(df.to_dict())
+        except Exception as e:
+            print(f"Error: {e}")
+            time.sleep(0.1)
+        time.sleep(0.2)
+    return pd.DataFrame(all_data)
 
+FROM  = "2017-01-01"
+TODAY = date.today().strftime("%Y-%m-%d")
 
-data_scaled = np.load("data_scaled.npy")
-data_scaled_vol = np.load("data_scaled_vol.npy")
-data_scaled_high = np.load("data_scaled_high.npy")
-data_scaled_low = np.load("data_scaled_low.npy")
+data        = batch_download(input_tickers, FROM, TODAY, datatype='Close')
+data_volume = batch_download(input_tickers, FROM, TODAY, datatype='Volume')
+data_high   = batch_download(input_tickers, FROM, TODAY, datatype='High')
+data_low    = batch_download(input_tickers, FROM, TODAY, datatype='Low')
 
-#data_scaled = data_scaled[0:-128]
-#data_scaled_vol = data_scaled_vol[0:-128]
-#data_scaled_high = data_scaled_high[0:-128]
-#data_scaled_low = data_scaled_low[0:-128]
+scaler      = MinMaxScaler()
+scaler_vol  = MinMaxScaler()
+scaler_high = MinMaxScaler()
+scaler_low  = MinMaxScaler()
 
-# Helper function for normalization
+data_scaled      = scaler.fit_transform(data.fillna(method='ffill').fillna(0))
+data_scaled_vol  = scaler_vol.fit_transform(data_volume.fillna(method='ffill').fillna(0))
+data_scaled_high = scaler_high.fit_transform(data_high.fillna(method='ffill').fillna(0))
+data_scaled_low  = scaler_low.fit_transform(data_low.fillna(method='ffill').fillna(0))
+
+np.save("data_scaled.npy",      data_scaled)
+np.save("data_scaled_vol.npy",  data_scaled_vol)
+np.save("data_scaled_high.npy", data_scaled_high)
+np.save("data_scaled_low.npy",  data_scaled_low)
+
+# ─────────────────────────────────────────────
+# LOAD (if skipping download)
+# ─────────────────────────────────────────────
+# data_scaled      = np.load("data_scaled.npy")
+# data_scaled_vol  = np.load("data_scaled_vol.npy")
+# data_scaled_high = np.load("data_scaled_high.npy")
+# data_scaled_low  = np.load("data_scaled_low.npy")
+
+# ─────────────────────────────────────────────
+# HELPERS
+# ─────────────────────────────────────────────
 def normalize_min_max(data):
-    return (data - np.min(data, axis=0)) / (np.max(data, axis=0) - np.min(data, axis=0))
+    dmin = np.min(data, axis=0)
+    dmax = np.max(data, axis=0)
+    denom = dmax - dmin
+    denom[denom == 0] = 1e-8
+    return (data - dmin) / denom
 
 
+def create_input(data, vol, high, low, time_steps):
+    a = normalize_min_max(data[-time_steps:])
+    b = normalize_min_max(vol[-time_steps:])
+    c = normalize_min_max(high[-time_steps:])
+    d = normalize_min_max(low[-time_steps:])
+    inp = np.concatenate([a, b, c, d], axis=1)
+    return np.array([inp])   # shape (1, time_steps, features)
 
 
-DAYS = 142
-HISTORY = 172
-
-
-# Function to create supervised learning dataset
-
-def create_input(data, vol, high, low, time_steps=0):
-    X=[]
-    data_to_insert_a = normalize_min_max(data[-time_steps:])
-    data_to_insert_b = normalize_min_max(vol[-time_steps:])
-    data_to_insert_c = normalize_min_max(high[-time_steps:])
-    data_to_insert_d = normalize_min_max(low[-time_steps:])
-    data_to_insert = np.concatenate([data_to_insert_a, data_to_insert_b,data_to_insert_c,data_to_insert_d], axis=1)
-    X.append(data_to_insert)
-
-
-    # Convert to a numpy array and return
-    return np.array(X)
-
-
-
-def create_dataset(data, vol, high, low, time_steps=0, future_steps=0, threshold=0.1, inverted=False):
+def create_dataset(data, vol, high, low, time_steps, future_steps, inverted=False):
     if inverted:
-      data = 1-data
-      high = 1-high
-      low = 1-low
+        data = 1 - data
+        high = 1 - high
+        low  = 1 - low
 
     X, y = [], []
     for i in range(len(data) - time_steps - future_steps):
-        # Normalize and prepare input data
-        data_to_insert_a = normalize_min_max(data[i:i + time_steps])
-        data_to_insert_b = normalize_min_max(vol[i:i + time_steps])
-        data_to_insert_c = normalize_min_max(high[-time_steps:])
-        data_to_insert_d = normalize_min_max(low[-time_steps:])
-        data_to_insert = np.concatenate([data_to_insert_a, data_to_insert_b,data_to_insert_c,data_to_insert_d], axis=1)
-        X.append(data_to_insert)
+        a = normalize_min_max(data[i:i + time_steps])
+        b = normalize_min_max(vol[i:i + time_steps])
+        c = normalize_min_max(high[i:i + time_steps])
+        d = normalize_min_max(low[i:i + time_steps])
+        X.append(np.concatenate([a, b, c, d], axis=1))
 
-        future_prices = data[i + time_steps:i + time_steps + future_steps]
-        current_price = data[i + time_steps - 1]
-
-        future_average_price = np.mean(future_prices, axis=0)
-        target = future_average_price - current_price
-
-
-        y.append(target)
+        future_prices     = data[i + time_steps: i + time_steps + future_steps]
+        current_price     = data[i + time_steps - 1]
+        future_avg        = np.mean(future_prices, axis=0)
+        y.append(future_avg - current_price)
 
     return np.array(X), np.array(y)
 
 
-# Prepare dataset (200-day version)
-X_s, y_s = create_dataset(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, time_steps=HISTORY, future_steps=DAYS)
-X_inv_s, y_inv_s = create_dataset(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, time_steps=HISTORY, future_steps=DAYS, inverted=True)
-X_combined_s = np.concatenate((X_s, X_inv_s), axis=0)
-y_combined_s = np.concatenate((y_s, y_inv_s), axis=0)
-input_data = create_input(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, time_steps=HISTORY)
-
-
-def build_model(shape1, shape2):
+def build_model(shape1, shape2, n_tickers):
     inp = tf.keras.layers.Input(shape=(shape1, shape2))
-
-    x = tf.keras.layers.SpatialDropout1D(random.uniform(0.4, 0.85))(inp)
-    x = tf.keras.layers.Dropout(random.uniform(0.1,0.7))(x)
+    x   = tf.keras.layers.SpatialDropout1D(random.uniform(0.5, 0.9))(inp)
+    x   = tf.keras.layers.Dropout(random.uniform(0.1, 0.7))(x)
 
     for _ in range(random.randint(2, 4)):
         x = tf.keras.layers.SeparableConv1D(
-            filters=shape2,        # keeps channel count
-            kernel_size=3,
-            strides=2,
-            padding="same",
-            depth_multiplier=1     # ensures per channel filters
+            filters=shape2, kernel_size=3, strides=2,
+            padding="same", depth_multiplier=1
         )(x)
         x = tf.keras.layers.LayerNormalization()(x)
         x = tf.keras.layers.Activation("gelu")(x)
 
-    # Now combine channels at the end
     x = tf.keras.layers.Flatten()(x)
-
-    x = tf.keras.layers.Dropout(random.uniform(0.2,0.85))(x)
+    x = tf.keras.layers.Dropout(random.uniform(0.2, 0.85))(x)
     x = tf.keras.layers.Dense(random.randint(16, 64), activation="gelu")(x)
     x = tf.keras.layers.LayerNormalization()(x)
-    x = tf.keras.layers.Dropout(random.uniform(0.2,0.7))(x)
+    x = tf.keras.layers.Dropout(random.uniform(0.2, 0.7))(x)
     x = tf.keras.layers.Dense(random.randint(8, 64), activation="gelu")(x)
 
-    if random.randint(0,1 ) == 1:
-      if random.randint(0, 1) == 1:
-        x = tf.keras.layers.LayerNormalization()(x)
-      x = tf.keras.layers.Dense(random.randint(8, 64), activation="gelu")(x)
+    if random.randint(0, 1):
+        if random.randint(0, 1):
+            x = tf.keras.layers.LayerNormalization()(x)
+        x = tf.keras.layers.Dense(random.randint(8, 64), activation="gelu")(x)
 
-    out = tf.keras.layers.Dense(len(input_tickers))(x)
-
+    out   = tf.keras.layers.Dense(n_tickers)(x)
     model = tf.keras.Model(inp, out)
-    print(model.summary())
     return model
 
 
-# Training setup
-num_models = 12
-early_stopping = EarlyStopping(monitor='val_loss', patience=32, min_delta=1e-4, restore_best_weights=True, mode='min', verbose=1)
-lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=10, verbose=1)
+# ─────────────────────────────────────────────
+# MULTI-HORIZON TRAINING
+# ─────────────────────────────────────────────
+HORIZONS    = [32, 64, 76, 90, 120]
+NUM_MODELS  = 2   # ensemble size per horizon
+N_TICKERS   = len(input_tickers)
 
-import random
-# Train the ensemble (200-day version)
-ensemble = []
-for i in range(1, num_models):
-    print(f"Training model {i}/{num_models} for {DAYS}-day prediction...")
-    model = build_model(X_combined_s.shape[1], X_combined_s.shape[2])
-    optimizer = tf.keras.optimizers.AdamW(learning_rate=0.001)
-    model.compile(optimizer=optimizer, loss='mse')
-    model.fit(X_combined_s, y_combined_s, epochs=4, batch_size=6, validation_split=0.35, verbose=1, callbacks=[early_stopping, lr_scheduler])
-    ensemble.append(model)
+early_stopping = EarlyStopping(
+    monitor='val_loss', patience=32, min_delta=1e-4,
+    restore_best_weights=True, mode='min', verbose=1
+)
+lr_scheduler = tf.keras.callbacks.ReduceLROnPlateau(
+    monitor='val_loss', factor=0.5, patience=10, verbose=1
+)
 
-# Predictions (200-day version)
-predictions = {ticker: [] for ticker in input_tickers}
-for idx, ticker in enumerate(input_tickers):
-    predictions[ticker] = np.mean([m(input_data).numpy()[:, idx] for m in ensemble], axis=0)
+# horizon → { ticker: predicted_change }
+all_predictions = {}
 
-# Plot predictions
-fig, ax = plt.subplots(figsize=(18, 10))
-tickers_range = np.arange(len(input_tickers))
-pred_days = np.array([predictions[ticker] for ticker in input_tickers]).flatten()
-ax.bar(tickers_range, pred_days, color='blue', width=0.6, label='200-Day Prediction')
+for horizon in HORIZONS:
+    DAYS    = horizon
+    HISTORY = horizon
+    print(f"\n{'='*60}")
+    print(f"  HORIZON: {DAYS} days  (history={HISTORY})")
+    print(f"{'='*60}")
 
-ax.set_title("200-Day Predictions for All Tickers", fontsize=16)
-ax.set_xlabel("Tickers", fontsize=14)
-ax.set_ylabel("Predicted Change", fontsize=14)
-ax.set_xticks(tickers_range)
-ax.set_xticklabels(input_tickers, rotation=45, fontsize=10)
-ax.legend(title="Prediction Length", fontsize=10)
-ax.grid(alpha=0.3)
+    X, y         = create_dataset(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, HISTORY, DAYS)
+    X_inv, y_inv = create_dataset(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, HISTORY, DAYS, inverted=True)
 
-plt.tight_layout()
-plt.show()
+    X_comb = np.concatenate([X, X_inv], axis=0)
+    y_comb = np.concatenate([y, y_inv], axis=0)
 
-import pandas as pd
+    inp_data = create_input(data_scaled, data_scaled_vol, data_scaled_high, data_scaled_low, HISTORY)
 
-# Convert predictions dictionary to DataFrame
-predictions_df = pd.DataFrame.from_dict(predictions, orient='index', columns=['{DAYS}-Day Prediction'])
+    ensemble = []
+    for i in range(NUM_MODELS):
+        print(f"  → Model {i+1}/{NUM_MODELS}")
+        model = build_model(X_comb.shape[1], X_comb.shape[2], N_TICKERS)
+        model.compile(optimizer=tf.keras.optimizers.AdamW(1e-3), loss='mse')
+        model.fit(
+            X_comb, y_comb,
+            epochs=4, batch_size=6,
+            validation_split=0.35,
+            verbose=1,
+            callbacks=[early_stopping, lr_scheduler]
+        )
+        ensemble.append(model)
 
-# Save as CSV
-predictions_df.to_csv(f"predictions_{DAYS}.csv")
+    # Average ensemble predictions
+    preds = {}
+    for idx, ticker in enumerate(input_tickers):
+        preds[ticker] = float(np.mean([m(inp_data).numpy()[0, idx] for m in ensemble]))
 
-# Download in Colab
-from google.colab import files
-files.download(f"predictions_{DAYS}.csv")
+    all_predictions[horizon] = preds
+    print(f"  ✓ Horizon {DAYS}d complete")
+
+
+# ─────────────────────────────────────────────
+# SAVE PREDICTIONS
+# ─────────────────────────────────────────────
+rows = []
+for horizon, preds in all_predictions.items():
+    for ticker, val in preds.items():
+        rows.append({"ticker": ticker, "horizon": horizon, "predicted_change": val})
+
+pred_df = pd.DataFrame(rows)
+pred_df.to_csv("multi_horizon_predictions.csv", index=False)
+print("\n✓ Saved: multi_horizon_predictions.csv")
+
+
+# ─────────────────────────────────────────────
+# PLOTTING — one chart per ticker
+# ─────────────────────────────────────────────
+plt.rcParams.update({
+    "figure.facecolor":  "#0d0f14",
+    "axes.facecolor":    "#13161e",
+    "axes.edgecolor":    "#2a2d3a",
+    "axes.labelcolor":   "#c8ccd8",
+    "xtick.color":       "#7a7f8e",
+    "ytick.color":       "#7a7f8e",
+    "text.color":        "#e0e3ed",
+    "grid.color":        "#1e2130",
+    "grid.linestyle":    "--",
+    "grid.alpha":        0.6,
+    "font.family":       "monospace",
+})
+
+# Color gradient: red → amber → green across horizons
+horizon_labels = HORIZONS
+n_h = len(horizon_labels)
+
+def horizon_color(i, n):
+    """Interpolate red→yellow→green."""
+    ratio = i / max(n - 1, 1)
+    if ratio < 0.5:
+        r = 1.0
+        g = ratio * 2 * 0.85
+        b = 0.1
+    else:
+        r = (1 - ratio) * 2 * 0.85
+        g = 0.85
+        b = 0.1
+    return (r, g, b)
+
+COLS       = 4                                      # tickers per row in multi-page layout
+TICKERS_PP = 16                                     # tickers per figure page
+n_tickers  = len(input_tickers)
+n_pages    = (n_tickers + TICKERS_PP - 1) // TICKERS_PP
+
+for page in range(n_pages):
+    start_t = page * TICKERS_PP
+    end_t   = min(start_t + TICKERS_PP, n_tickers)
+    page_tickers = input_tickers[start_t:end_t]
+    rows_this    = (len(page_tickers) + COLS - 1) // COLS
+
+    fig, axes = plt.subplots(
+        rows_this, COLS,
+        figsize=(COLS * 4.5, rows_this * 3.2),
+        facecolor="#0d0f14"
+    )
+    axes = np.array(axes).reshape(-1)  # flatten
+
+    for ax_i, ticker in enumerate(page_tickers):
+        ax = axes[ax_i]
+        vals   = [all_predictions[h][ticker] for h in horizon_labels]
+        colors = [horizon_color(i, n_h) for i in range(n_h)]
+
+        bars = ax.bar(range(n_h), vals, color=colors, width=0.72, zorder=3)
+
+        # Zero line
+        ax.axhline(0, color="#3a3f52", linewidth=0.8, zorder=2)
+
+        # Value labels on bars
+        for bar, v in zip(bars, vals):
+            ypos   = bar.get_height() + 0.001 if v >= 0 else bar.get_height() - 0.003
+            valign = "bottom" if v >= 0 else "top"
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                ypos, f"{v:+.3f}",
+                ha="center", va=valign,
+                fontsize=6.5, color="#c8ccd8", fontfamily="monospace"
+            )
+
+        ax.set_xticks(range(n_h))
+        ax.set_xticklabels([str(h) for h in horizon_labels], fontsize=6, rotation=60)
+        ax.set_title(ticker, fontsize=11, fontweight="bold",
+                     color="#e8ecf5", pad=6, fontfamily="monospace")
+        ax.grid(axis="y", zorder=0)
+        ax.set_ylabel("Δ price (norm.)", fontsize=7, labelpad=4)
+        ax.tick_params(axis="both", labelsize=7)
+        ax.spines["top"].set_visible(False)
+        ax.spines["right"].set_visible(False)
+
+    # Hide unused subplots
+    for ax_i in range(len(page_tickers), len(axes)):
+        axes[ax_i].set_visible(False)
+
+    # ── Shared legend ──
+    legend_patches = [
+        plt.Rectangle((0, 0), 1, 1, color=horizon_color(i, n_h),
+                       label=f"{horizon_labels[i]}d")
+        for i in range(n_h)
+    ]
+    fig.legend(
+        handles=legend_patches,
+        loc="lower center",
+        ncol=n_h,
+        frameon=True,
+        framealpha=0.15,
+        facecolor="#1a1d28",
+        edgecolor="#2a2d3a",
+        fontsize=8,
+        title="Forecast horizon",
+        title_fontsize=8,
+        labelcolor="#c8ccd8",
+        bbox_to_anchor=(0.5, -0.01)
+    )
+
+    fig.suptitle(
+        f"Multi-Horizon Stock Predictions  ·  page {page+1}/{n_pages}",
+        fontsize=14, fontweight="bold",
+        color="#e8ecf5", y=1.01, fontfamily="monospace"
+    )
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    fname = f"predictions_page_{page+1}.png"
+    plt.savefig(fname, dpi=150, bbox_inches="tight", facecolor="#0d0f14")
+    print(f"✓ Saved: {fname}")
+    plt.show()
+
+print("\n✓ All done.")
